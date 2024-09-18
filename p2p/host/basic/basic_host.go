@@ -822,11 +822,11 @@ func (h *BasicHost) ConnManager() connmgr.ConnManager {
 	return h.cmgr
 }
 
-// Addrs returns listening addresses that are safe to announce to the network.
-// The output is the same as AllAddrs, but processed by AddrsFactory.
+// Addrs returns listening addresses. The output is the same as AllAddrs, but
+// processed by AddrsFactory.
+// When used with AutoRelay, and if the host is not publicly reachable,
+// this will only have host's private, relay, and no public addresses.
 func (h *BasicHost) Addrs() []ma.Multiaddr {
-	// We don't need to append certhashes here, the user provided addrsFactory was
-	// wrapped with addCertHashes in the constructor.
 	addrs := h.AddrsFactory(h.AllAddrs())
 	// Make a copy. Consumers can modify the slice elements
 	res := make([]ma.Multiaddr, len(addrs))
@@ -851,9 +851,9 @@ func (h *BasicHost) NormalizeMultiaddr(addr ma.Multiaddr) ma.Multiaddr {
 	return addr
 }
 
+var p2pCircuitAddr = ma.StringCast("/p2p-circuit")
+
 // AllAddrs returns all the addresses the host is listening on except circuit addresses.
-// The output has webtransport addresses inferred from quic addresses.
-// All the addresses have the correct
 func (h *BasicHost) AllAddrs() []ma.Multiaddr {
 	listenAddrs := h.Network().ListenAddresses()
 	if len(listenAddrs) == 0 {
@@ -946,6 +946,16 @@ func (h *BasicHost) AllAddrs() []ma.Multiaddr {
 		finalAddrs = append(finalAddrs, observedAddrs...)
 	}
 	finalAddrs = ma.Unique(finalAddrs)
+	// Remove /p2p-circuit addresses from the list.
+	// The p2p-circuit tranport listener reports its address as just /p2p-circuit
+	// This is useless for dialing. Users need to manage their circuit addresses themselves,
+	// or use AutoRelay.
+	finalAddrs = slices.DeleteFunc(finalAddrs, func(a ma.Multiaddr) bool {
+		return a.Equal(p2pCircuitAddr)
+	})
+	// Add certhashes for /webrtc-direct, /webtransport, etc addresses discovered
+	// using identify.
+	finalAddrs = h.addCertHashes(finalAddrs)
 	return finalAddrs
 }
 
